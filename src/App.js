@@ -169,12 +169,11 @@ class RealDataService {
   }
 
   static estimateArea(tags) {
-    // Calibrated for Boston: max garden 0.097 km², realistic size distribution
     if (tags?.landuse === 'forest') return 0.05; // Smaller forests
     if (tags?.leisure === 'park') return 0.015; // Medium parks
-    if (tags?.leisure === 'garden') return 0.01; // Small gardens (well below 0.1 max)
+    if (tags?.leisure === 'garden') return 0.01; // Small gardens 
     if (tags?.landuse === 'grass') return 0.005; // Very small grass areas
-    return 0.03; // Default small area
+    return 0.005; // Default small area
   }
 
   static getMockGreenSpaces(lat, lng) {
@@ -289,17 +288,17 @@ const UrbanPlanningCalculations = {
 
   // Green space effectiveness
   greenEffectiveness: {
-    park: { cooling: 3.5, coverage: 0.8, air: 15 },
-    garden: { cooling: 2.2, coverage: 0.3, air: 8 },
-    forest: { cooling: 4.8, coverage: 1.5, air: 20 },
-    green_roof: { cooling: 1.8, coverage: 0.1, air: 5 }
+    park: { cooling: 0.0006, coverage: 0.05, air: .0015 },
+    garden: { cooling: 0.0003, coverage: 0.015, air: .008 },
+    forest: { cooling: 0.002, coverage: .01, air: .0020 },
+    green_roof: { cooling: 0.001, coverage: 0.005, air: .005 }
   },
 
   // Calculate temperature reduction based on actual structures and Boston's heat island data
   calculateTemperatureReduction: (markers, baseTemp = 85, cityCenter = [42.3601, -71.0589]) => {
     // Get Boston neighborhood data for the city center
     const neighborhoodData = BostonUrbanData.getNeighborhoodData(cityCenter[0], cityCenter[1]);
-    const bostonBaseTemp = Math.max(60, Math.min(neighborhoodData.heat.baseTemp, 110)); // Clamp base temp
+    const bostonBaseTemp = Math.max(20, Math.min(baseTemp, 110)); // Clamp base temp to actual current temperature
     const heatIntensity = Math.max(0, Math.min(neighborhoodData.heat.intensity, 2)); // Clamp intensity\
     console.log('Heat Intensity:', heatIntensity);
     console.log('Base Temp:', bostonBaseTemp);  
@@ -317,13 +316,18 @@ const UrbanPlanningCalculations = {
         heatContribution += heatAddition;
       }
     });
-    
+    console.log('Heat contribution:', heatContribution);
     // Factor in Boston's existing heat island effect
     const bostonHeatIsland = (bostonBaseTemp - 75) * heatIntensity; // 75°F is rural baseline
-    let finalTemp = bostonBaseTemp - reduction + heatContribution + bostonHeatIsland;
+    console.log('Heat island:', bostonHeatIsland);
+    console.log('basetemp:', bostonBaseTemp);
+    console.log('reduc:', reduction);
+    console.log('heatcontrib:', heatContribution);
+    let finalTemp = bostonBaseTemp - reduction + heatContribution;
     
     // Clamp final temperature to realistic range
-    finalTemp = Math.max(60, Math.min(finalTemp, 110));
+    finalTemp = Math.max(40, Math.min(finalTemp, 110));
+    console.log('final:', finalTemp);
     return finalTemp;
   },
 
@@ -341,7 +345,7 @@ const UrbanPlanningCalculations = {
   },
 
   // Calculate air quality improvement
-  calculateAirQuality: (markers, baselineScore = 40) => {
+  calculateAirQuality: (markers, baselineScore = -10) => {
     let improvement = 0;
     
     markers.forEach(marker => {
@@ -364,19 +368,19 @@ const UrbanPlanningCalculations = {
   },
 
   // Calculate energy efficiency
-  calculateEnergyEfficiency: (markers, baselineEfficiency = 60) => {
+  calculateEnergyEfficiency: (markers, baselineEfficiency = 25) => {
     let improvement = 0;
     
     markers.forEach(marker => {
       if (marker.type === 'building') {
         const efficiency = UrbanPlanningCalculations.buildingEfficiency[marker.subtype] || 0.6;
-        improvement += (efficiency - 0.6) * 20; // Scale for visibility
+        improvement += (efficiency - 0.6) * 5; // Scale for visibility
       } else if (marker.type === 'green') {
-        improvement += 2; // Green spaces reduce cooling needs
+        improvement += 0.015; // Green spaces reduce cooling needs
       }
     });
     
-    return Math.min(Math.max(baselineEfficiency + improvement, 20), 98);
+    return Math.min(Math.max(baselineEfficiency + improvement, 20), 100);
   },
 
   // Calculate walkability score
@@ -433,14 +437,14 @@ const UrbanPlanningCalculations = {
         const efficiency = UrbanPlanningCalculations.buildingEfficiency[marker.subtype] || 0.6;
         // Scale heat generation by Boston's heat intensity for the neighborhood
         intensity = (1 - efficiency) * neighborhoodData.heat.intensity;
-        radius = 250;
+        radius = 20;
         color = intensity > 0.6 ? '#dc2626' : 
                 intensity > 0.4 ? '#f59e0b' : '#fbbf24';
       } else if (marker.type === 'green') {
         // Green spaces provide more cooling in high-heat areas
         const coolingEffect = 0.2 + (neighborhoodData.heat.intensity * 0.3);
         intensity = -coolingEffect; // Negative intensity for cooling
-        radius = marker.area ? marker.area * 200 : 300;
+        radius = marker.area ? marker.area * 10 : 150;
         color = '#10b981';
       }
       
@@ -468,7 +472,7 @@ const UrbanPlanningCalculations = {
         const effect = UrbanPlanningCalculations.greenEffectiveness[marker.subtype] || UrbanPlanningCalculations.greenEffectiveness.park;
         return {
           center: [lat, lng],
-          radius: marker.area ? marker.area * 200 : effect.coverage * 300,
+          radius: marker.area ? marker.area * 10 : effect.coverage * 150,
           color: '#22c55e',
           opacity: 0.6
         };
@@ -512,7 +516,7 @@ const UrbanPlanningCalculations = {
         opacity: cluster.isCluster ? 0.5 : 0.4,
         title: cluster.title,
         subtitle: cluster.isCluster ? `${cluster.spaces.length} green spaces` : null,
-        subtype: cluster.subtype,
+        subtype: cluster.isCluster ? UrbanPlanningCalculations.getClusterSubtype(cluster.spaces) : null,
         area: cluster.totalArea,
         isCluster: cluster.isCluster,
         spaces: cluster.spaces
@@ -1534,8 +1538,6 @@ function App() {
                 <div className="text-xs text-gray-500 space-y-1">
                   <div>• Existing green spaces: {cityData.existingGreenSpaces?.length || 0}</div>
                   <div>• Your additions: {customLocations.length}</div>
-                  <div>• Buildings: {customLocations.filter(m => m.type === 'building').length}</div>
-                  <div>• Green additions: {customLocations.filter(m => m.type === 'green').length}</div>
                 </div>
               </div>
             </div>
@@ -1567,78 +1569,93 @@ function App() {
           />
           
           {/* Dynamic markers (user additions only) */}
-          {allMarkers.filter(marker => !marker.existing).map(marker => (
-            <Marker key={marker.id} position={marker.position}>
-              <Popup>
-                <div className="p-2 max-w-xs">
-                  <h3 className="font-semibold text-gray-800 mb-2">{marker.title}</h3>
-                  
-                  <div className="space-y-1 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Type:</span>
-                      <span className="font-medium capitalize">
-                        {structureTypes[marker.type]?.find(s => s.id === marker.subtype)?.label || marker.subtype}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Category:</span>
-                      <span className="font-medium capitalize">{marker.type}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">Status:</span>
-                      <span className={`font-medium ${
-                        marker.existing ? 'text-blue-600' : 'text-green-600'
-                      }`}>
-                        {marker.existing ? 'Existing' : 'Your Addition'}
-                      </span>
-                    </div>
-                    {marker.area && (
+          {allMarkers.filter(marker => !marker.existing).map(marker => {
+            // Determine marker color based on type/subtype (legend)
+            let markerColor = 'blue';
+            if (marker.type === 'green') {
+              markerColor = 'green';
+            } else if (marker.type === 'building') {
+              if (marker.subtype === 'green_building') markerColor = 'blue';
+              else if (marker.subtype === 'industrial') markerColor = 'red';
+              else if (marker.subtype === 'retail' || marker.subtype === 'mixed_use') markerColor = 'yellow';
+              else markerColor = 'blue';
+            }
+
+            // Custom Leaflet icon
+            const customIcon = L.divIcon({
+              className: '',
+              html: `<div style="background:${markerColor};width:18px;height:18px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 4px #888;"></div>`
+            });
+
+            return (
+              <Marker key={marker.id} position={marker.position} icon={customIcon}>
+                <Popup>
+                  <div className="p-2 max-w-xs">
+                    <h3 className="font-semibold text-gray-800 mb-2">{marker.title}</h3>
+                    {/* ...existing code... */}
+                    <div className="space-y-1 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-gray-600">Area:</span>
-                        <span className="font-medium">{marker.area} km²</span>
+                        <span className="text-gray-600">Type:</span>
+                        <span className="font-medium capitalize">
+                          {structureTypes[marker.type]?.find(s => s.id === marker.subtype)?.label || marker.subtype}
+                        </span>
                       </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Category:</span>
+                        <span className="font-medium capitalize">{marker.type}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-gray-600">Status:</span>
+                        <span className={`font-medium ${
+                          marker.existing ? 'text-blue-600' : 'text-green-600'
+                        }`}>
+                          {marker.existing ? 'Existing' : 'Your Addition'}
+                        </span>
+                      </div>
+                      {marker.area && (
+                        <div className="flex justify-between">
+                          <span className="text-gray-600">Area:</span>
+                          <span className="font-medium">{marker.area} km²</span>
+                        </div>
+                      )}
+                    </div>
+                    {/* ...existing code... */}
+                    <div className="mt-3 pt-2 border-t border-gray-200">
+                      <h4 className="text-xs font-medium text-gray-700 mb-1">Environmental Impact:</h4>
+                      <div className="text-xs text-gray-600 space-y-1">
+                        {marker.type === 'green' && (
+                          <>
+                            <div>• Cooling effect: {UrbanPlanningCalculations.greenEffectiveness[marker.subtype]?.cooling || 3.5}°F</div>
+                            <div>• Improves air quality </div>
+                            <div>• Increases walkability and livability</div>
+                          </>
+                        )}
+                        {marker.type === 'building' && (
+                          <>
+                            <div>• Energy efficiency: {Math.round((UrbanPlanningCalculations.buildingEfficiency[marker.subtype] || 0.6) * 100)}%</div>
+                            <div>• Heat generation: {
+                              (UrbanPlanningCalculations.buildingEfficiency[marker.subtype] || 0.6) > 0.7 ? 'Low' : 
+                              (UrbanPlanningCalculations.buildingEfficiency[marker.subtype] || 0.6) > 0.5 ? 'Medium' : 'High'
+                            }</div>
+                        
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {/* ...existing code... */}
+                    {!marker.existing && (
+                      <button
+                        onClick={() => handleDeleteCustomLocation(marker.id)}
+                        className="mt-3 w-full px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
+                      >
+                        Delete Structure
+                      </button>
                     )}
                   </div>
-
-                  {/* Environmental Impact */}
-                  <div className="mt-3 pt-2 border-t border-gray-200">
-                    <h4 className="text-xs font-medium text-gray-700 mb-1">Environmental Impact:</h4>
-                    <div className="text-xs text-gray-600 space-y-1">
-                      {marker.type === 'green' && (
-                        <>
-                          <div>• Cooling effect: {UrbanPlanningCalculations.greenEffectiveness[marker.subtype]?.cooling || 3.5}°F</div>
-                          <div>• Improves air quality significantly</div>
-                          <div>• Increases walkability and livability</div>
-                        </>
-                      )}
-                      {marker.type === 'building' && (
-                        <>
-                          <div>• Energy efficiency: {Math.round((UrbanPlanningCalculations.buildingEfficiency[marker.subtype] || 0.6) * 100)}%</div>
-                          <div>• Heat generation: {
-                            (UrbanPlanningCalculations.buildingEfficiency[marker.subtype] || 0.6) > 0.7 ? 'Low' : 
-                            (UrbanPlanningCalculations.buildingEfficiency[marker.subtype] || 0.6) > 0.5 ? 'Medium' : 'High'
-                          }</div>
-                          <div>• Walkability impact: {
-                            ['mixed_use', 'retail'].includes(marker.subtype) ? 'High positive' :
-                            marker.subtype === 'industrial' ? 'Negative' : 'Positive'
-                          }</div>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  {!marker.existing && (
-                    <button
-                      onClick={() => handleDeleteCustomLocation(marker.id)}
-                      className="mt-3 w-full px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600"
-                    >
-                      Delete Structure
-                    </button>
-                  )}
-                </div>
-              </Popup>
-            </Marker>
-          ))}
+                </Popup>
+              </Marker>
+            );
+          })}
         </MapContainer>
 
         {/* Enhanced Legend */}
